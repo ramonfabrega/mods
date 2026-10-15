@@ -1,0 +1,6 @@
+.DS_Store
+*.log
+node_modules/
+.claude/worktrees/
+# The engine writes a mod's editor types on load; never source.
+**/.claude-plugin/types/

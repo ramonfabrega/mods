@@ -1,0 +1,7 @@
+{
+  "name": "host",
+  "version": "0.1.0",
+  "author": { "name": "Ramon Fabrega" },
+  "description": "The box this session runs on, in one band above the prompt: cpu, load, memory, swap traffic, disk, worktree trees, claude processes, ssh peers, tailscale. /host toggles it.",
+  "types": "./types/index.d.ts"
+}
