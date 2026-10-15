@@ -31,6 +31,8 @@ const TOP_N = 12
 // The dock width the pane asks for: a request the person's own drag overrides.
 const PANE_COLS = 40
 const PANE_ROWS = 44
+// Trees rows the pane shows before folding the rest into one line.
+const TREES_SHOWN = 5
 const TAILSCALE = '/Applications/Tailscale.app/Contents/MacOS/Tailscale'
 
 const isOn = atom({ plugin: 'host', key: 'isOn' } as const, false)
@@ -331,8 +333,6 @@ export const register: Register = on => {
 
     const c = colors(s)
     const cols = Math.max(20, e.props.bodyColumns || 40)
-    const now = await $.clock.now()
-    const age = Math.max(0, Math.round((now - s.at) / 1000))
 
     // A narrow column: label, bar and figure on one row, the detail dimmed
     // beneath it. Every row is budgeted against the width and truncated.
@@ -369,14 +369,18 @@ export const register: Register = on => {
     const swapPct = s.swap && s.swap.totalM > 0 ? (s.swap.usedM / s.swap.totalM) * 100 : null
 
     // Trees: name, share bar, size, checkouts; the bar takes what the width leaves.
-    const treeRows = (t?.dirs ?? []).map(d => ({ ...d, count: d.count ?? 0 }))
+    const allTrees = (t?.dirs ?? []).map(d => ({ ...d, count: d.count ?? 0 }))
+    const treeRows = allTrees.slice(0, TREES_SHOWN)
+    const treeRest = allTrees.slice(TREES_SHOWN)
+    const restK = treeRest.reduce((n, d) => n + d.k, 0)
     const nameW = Math.min(12, Math.max(4, ...treeRows.map(d => d.name.length)))
     const SIZE = 6
     const COUNT = 3
     const shareW = Math.max(3, Math.min(16, cols - nameW - SIZE - COUNT - 3))
 
     // Processes: the rows that fit, by cpu, then by rss when there is room for both.
-    const fixed = 3 + 1 + 8 + 1 + 3 + 1 + 1 + treeRows.length + 1
+    const treesBlock = 1 + 1 + treeRows.length + (treeRest.length ? 1 : 0)
+    const fixed = 3 + 1 + 8 + 1 + 3 + 1 + treesBlock
     const room = Math.max(5, e.props.scroll.bodyRows - fixed)
     const both = room >= 15
     const n = Math.min(TOP_N, both ? Math.floor((room - 3) / 2) : room - 1)
@@ -401,10 +405,7 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column">
-        <Box>
-          {cell(cols - 5, <Text bold>{s.host}</Text>)}
-          {cell(5, `${age}s`, { dim: true, right: true })}
-        </Box>
+        {cell(cols, <Text bold>{s.host}</Text>)}
         {cell(cols, <Text><Text dimColor>up </Text>{s.up}<Text dimColor>  ·  {s.cpus} cpu</Text></Text>)}
         {cell(cols, <Text><Text dimColor>load </Text>{s.load.map(x => x.toFixed(1)).join(' ')}</Text>)}
         <Text> </Text>
@@ -414,19 +415,19 @@ export const register: Register = on => {
           c.memPct,
           c.mem,
           g1(s.mem.usedG),
-          `of ${g1(s.mem.totalG)} · comp ${g1(s.mem.compressedG)} · free ${g1(s.mem.unusedG)}`,
+          `${g1(s.mem.totalG)} total · comp ${g1(s.mem.compressedG)} · free ${g1(s.mem.unusedG)}`,
         )}
         {meter(
           'swap',
           swapPct,
           c.swap,
           s.swap ? `${(s.swap.usedM / 1024).toFixed(1)}G` : 'none',
-          s.swap ? `of ${(s.swap.totalM / 1024).toFixed(0)}G · io ${c.swapIo === null ? '?' : rate(c.swapIo)}` : '',
+          s.swap ? `${(s.swap.totalM / 1024).toFixed(0)}G total · io ${c.swapIo === null ? '?' : rate(c.swapIo)}` : '',
         )}
         {meter('disk', s.disk?.pct ?? null, c.disk, s.disk ? `${s.disk.pct}%` : '?', s.disk ? `${gb(s.disk.availK)} free` : '')}
         <Text> </Text>
         {line('claude', `${s.claude.procs}p · ${gb(s.claude.rssK)} · ${s.claude.cpu}%`)}
-        {line('ssh', s.ssh.length ? s.ssh.join(' · ') : <Text dimColor>none</Text>)}
+        {line('ssh', s.ssh.length ? String(s.ssh.length) : <Text dimColor>none</Text>)}
         {line(
           'ts',
           ts ? (
@@ -434,12 +435,16 @@ export const register: Register = on => {
               <Text color={c.ts}>{ts.state === 'Running' ? 'ok' : ts.state}</Text>
               <Text dimColor> · </Text>
               {online.length}/{peers.length}
-              <Text dimColor> online{online.length ? ` · ${online.map(p => p.name).join(' ')}` : ''}</Text>
+              <Text dimColor> online</Text>
             </Text>
           ) : (
             <Text dimColor>—</Text>
           ),
         )}
+        <Text> </Text>
+        {procs('by cpu', top.cpu.slice(0, n))}
+        {both ? <Text> </Text> : null}
+        {both ? procs('by rss', top.rss.slice(0, n)) : null}
         <Text> </Text>
         {line('trees', t ? <Text>{gb(t.totalK)}<Text dimColor> · {t.count} checkouts</Text></Text> : <Text dimColor>…</Text>)}
         {treeRows.map(d => (
@@ -450,10 +455,15 @@ export const register: Register = on => {
             {cell(COUNT + 1, String(d.count), { dim: true, right: true })}
           </Box>
         ))}
+        {treeRest.length ? (
+          <Box>
+            {cell(nameW + 1, `+${treeRest.length}`, { dim: true })}
+            {cell(shareW + 1, bar(t && t.totalK > 0 ? (restK / t.totalK) * 100 : 0, shareW), { dim: true })}
+            {cell(SIZE, gb(restK), { dim: true, right: true })}
+            {cell(COUNT + 1, String(treeRest.reduce((n, d) => n + d.count, 0)), { dim: true, right: true })}
+          </Box>
+        ) : null}
         <Text> </Text>
-        {procs('by cpu', top.cpu.slice(0, n))}
-        {both ? <Text> </Text> : null}
-        {both ? procs('by rss', top.rss.slice(0, n)) : null}
       </Box>
     )
   })
