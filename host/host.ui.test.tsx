@@ -26,7 +26,7 @@ const BAND = {
 const PANE = {
   component: 'Pane',
   requestId: 'host',
-  props: { title: 'host', isFocused: false, bodyColumns: 100, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
+  props: { title: 'host', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 44 }, view: {} },
 } as const
 
 test('the band draws with its expand button, and a press opens the pane', async ($, on) => {
@@ -55,9 +55,12 @@ test('/host pane toggles the pane, /host off closes everything', async ($, on) =
   expect((await $.command.run({ command: 'host', args: 'pane' })).text).toBe('host pane open.')
   expect(open.has('host')).toBe(true)
   for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ plugin: 'host', surface, ...PANE })
-    expect(await ui.find({ type: 'Text', text: /cpu/ })).toBeDefined()
-    await ui.unmount()
+    for (const bodyColumns of [24, 40, 80]) {
+      const props = { ...PANE.props, bodyColumns }
+      const ui = await $.ui.mount({ plugin: 'host', surface, ...PANE, props })
+      expect(await ui.find({ type: 'Text', text: /cpu/ })).toBeDefined()
+      await ui.unmount()
+    }
   }
   expect((await $.command.run({ command: 'host', args: 'off' })).text).toBe('host off.')
   expect(open.has('host')).toBe(false)

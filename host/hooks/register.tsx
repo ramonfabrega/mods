@@ -28,6 +28,9 @@ const STORE_ON = 'host.on'
 const STORE_PANE = 'host.pane'
 const PANE = 'host'
 const TOP_N = 12
+// The dock width the pane asks for: a request the person's own drag overrides.
+const PANE_COLS = 40
+const PANE_ROWS = 44
 const TAILSCALE = '/Applications/Tailscale.app/Contents/MacOS/Tailscale'
 
 const isOn = atom({ plugin: 'host', key: 'isOn' } as const, false)
@@ -152,7 +155,7 @@ async function turnPane($: EngineInterface, enabled: boolean): Promise<void> {
   await update($, isPane, () => enabled)
   await $.store.set(STORE_PANE, enabled)
   await sync($)
-  if (enabled) await $.ui.open({ id: PANE, title: 'host' })
+  if (enabled) await $.ui.open({ id: PANE, title: 'host', columns: PANE_COLS, rows: PANE_ROWS })
   else await $.ui.close({ id: PANE })
 }
 
@@ -319,80 +322,78 @@ export const register: Register = on => {
       )
     }
 
+    // A snapshot written by an older build of this module outlives a reload
+    // (state is the host's): fields this build added may be missing for one tick.
+    const top = s.top ?? { cpu: [], rss: [] }
+    const ts = s.tailscale
+    const peers = ts?.peers ?? []
+    const online = peers.filter(p => p.isOnline)
+
     const c = colors(s)
-    const cols = e.props.bodyColumns || 80
+    const cols = Math.max(20, e.props.bodyColumns || 40)
     const now = await $.clock.now()
     const age = Math.max(0, Math.round((now - s.at) / 1000))
 
-    // Columns: a label, a meter, its figure right-aligned, then the detail.
-    const LABEL = 8
-    const bw = Math.max(10, Math.min(40, Math.floor(cols / 3)))
-    const label = (text: string) => (
-      <Box width={LABEL}>
-        <Text dimColor>{text}</Text>
+    // A narrow column: label, bar and figure on one row, the detail dimmed
+    // beneath it. Every row is budgeted against the width and truncated.
+    const LABEL = 5
+    const FIGURE = 6
+    const bw = cols - LABEL - FIGURE - 1
+    const cell = (w: number, text: RenderChildren, opts: { dim?: boolean; color?: string; right?: true } = {}) => (
+      <Box width={w} justifyContent={opts.right ? 'flex-end' : 'flex-start'}>
+        <Text dimColor={opts.dim === true} color={opts.color} wrap="truncate">
+          {text}
+        </Text>
       </Box>
     )
     const meter = (name: string, pct: number | null, color: string | undefined, figure: string, detail: string) => (
-      <Box key={name}>
-        {label(name)}
-        <Text color={color}>{bar(pct ?? 0, bw)}</Text>
-        <Box width={7} justifyContent="flex-end">
-          <Text color={color}>{figure}</Text>
+      <Box flexDirection="column" key={name}>
+        <Box>
+          {cell(LABEL, name, { dim: true })}
+          {cell(bw, bar(pct ?? 0, bw), { color })}
+          {cell(FIGURE + 1, figure, { color, right: true })}
         </Box>
-        <Box marginLeft={2}>
-          <Text dimColor wrap="truncate">{detail}</Text>
+        <Box>
+          <Box width={LABEL} />
+          {cell(cols - LABEL, detail, { dim: true })}
         </Box>
       </Box>
     )
     const line = (name: string, body: RenderChildren) => (
       <Box key={name}>
-        {label(name)}
-        <Text wrap="truncate">{body}</Text>
+        {cell(8, name, { dim: true })}
+        {cell(cols - 8, body)}
       </Box>
     )
 
     const swapPct = s.swap && s.swap.totalM > 0 ? (s.swap.usedM / s.swap.totalM) * 100 : null
-    const ts = s.tailscale
-    const online = ts ? ts.peers.filter(p => p.isOnline) : []
 
-    // Trees: one row per repo, its share of the total as a bar.
-    const treeRows = t?.dirs ?? []
-    const nameW = Math.max(6, ...treeRows.map(d => d.name.length))
-    const shareW = Math.max(6, Math.min(20, Math.floor(cols / 6)))
+    // Trees: name, share bar, size, checkouts; the bar takes what the width leaves.
+    const treeRows = (t?.dirs ?? []).map(d => ({ ...d, count: d.count ?? 0 }))
+    const nameW = Math.min(12, Math.max(4, ...treeRows.map(d => d.name.length)))
+    const SIZE = 6
+    const COUNT = 3
+    const shareW = Math.max(3, Math.min(16, cols - nameW - SIZE - COUNT - 3))
 
-    // Processes: the rows that fit, by cpu then by rss when there is room for both.
-    const fixed = 12 + treeRows.length
-    const room = Math.max(4, e.props.scroll.bodyRows - fixed)
-    const both = room >= 10
-    const n = Math.min(TOP_N, both ? Math.floor((room - 2) / 2) : room - 1)
-    const cpuW = 6
-    const rssW = 6
+    // Processes: the rows that fit, by cpu, then by rss when there is room for both.
+    const fixed = 3 + 1 + 8 + 1 + 3 + 1 + 1 + treeRows.length + 1
+    const room = Math.max(5, e.props.scroll.bodyRows - fixed)
+    const both = room >= 15
+    const n = Math.min(TOP_N, both ? Math.floor((room - 3) / 2) : room - 1)
+    const CPU = 5
+    const RSS = 6
     const procs = (title: string, rows: Proc[]) => (
       <Box flexDirection="column" key={title}>
         <Box>
-          {label(title)}
-          <Box width={cpuW} justifyContent="flex-end">
-            <Text dimColor>cpu%</Text>
-          </Box>
-          <Box width={rssW} justifyContent="flex-end">
-            <Text dimColor>rss</Text>
-          </Box>
-          <Box marginLeft={2}>
-            <Text dimColor>process</Text>
-          </Box>
+          {cell(CPU, 'cpu%', { dim: true, right: true })}
+          {cell(RSS, 'rss', { dim: true, right: true })}
+          {cell(cols - CPU - RSS - 2, <Text>  {title}</Text>, { dim: true })}
         </Box>
         {rows.map((p, i) => (
           <Box key={String(i)}>
-            <Box width={LABEL} />
-            <Box width={cpuW} justifyContent="flex-end">
-              <Text color={p.cpu >= 100 ? 'yellow' : undefined}>{p.cpu.toFixed(1)}</Text>
-            </Box>
-            <Box width={rssW} justifyContent="flex-end">
-              <Text>{g1(p.rssK / 1024 ** 2)}</Text>
-            </Box>
-            <Box marginLeft={2}>
-              <Text wrap="truncate">{p.name}</Text>
-            </Box>
+            {cell(CPU, p.cpu.toFixed(1), { color: p.cpu >= 100 ? 'yellow' : undefined, right: true })}
+            {cell(RSS, g1(p.rssK / 1024 ** 2), { right: true })}
+            {cell(cols - CPU - RSS - 2, <Text>  {p.name}</Text>)}
           </Box>
         ))}
       </Box>
@@ -400,71 +401,59 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column">
-        <Box justifyContent="space-between">
-          <Text>
-            <Text bold>{s.host}</Text>
-            <Text dimColor>  up </Text>
-            {s.up}
-            <Text dimColor>  ·  {s.cpus} cpu  ·  load </Text>
-            {s.load.map(x => x.toFixed(1)).join(' ')}
-          </Text>
-          <Text dimColor>{age}s ago</Text>
+        <Box>
+          {cell(cols - 5, <Text bold>{s.host}</Text>)}
+          {cell(5, `${age}s`, { dim: true, right: true })}
         </Box>
+        {cell(cols, <Text><Text dimColor>up </Text>{s.up}<Text dimColor>  ·  {s.cpus} cpu</Text></Text>)}
+        {cell(cols, <Text><Text dimColor>load </Text>{s.load.map(x => x.toFixed(1)).join(' ')}</Text>)}
+        <Text> </Text>
         {meter('cpu', s.cpuBusy, c.cpu, `${s.cpuBusy ?? '?'}%`, `claude ${s.claude.cpu}%`)}
         {meter(
           'mem',
           c.memPct,
           c.mem,
           g1(s.mem.usedG),
-          `of ${g1(s.mem.totalG)}  ·  compressed ${g1(s.mem.compressedG)}  ·  unused ${g1(s.mem.unusedG)}`,
+          `of ${g1(s.mem.totalG)} · comp ${g1(s.mem.compressedG)} · free ${g1(s.mem.unusedG)}`,
         )}
         {meter(
           'swap',
           swapPct,
           c.swap,
           s.swap ? `${(s.swap.usedM / 1024).toFixed(1)}G` : 'none',
-          s.swap
-            ? `of ${(s.swap.totalM / 1024).toFixed(0)}G  ·  traffic ${c.swapIo === null ? '?' : rate(c.swapIo)}`
-            : '',
+          s.swap ? `of ${(s.swap.totalM / 1024).toFixed(0)}G · io ${c.swapIo === null ? '?' : rate(c.swapIo)}` : '',
         )}
         {meter('disk', s.disk?.pct ?? null, c.disk, s.disk ? `${s.disk.pct}%` : '?', s.disk ? `${gb(s.disk.availK)} free` : '')}
         <Text> </Text>
-        {line('claude', `${s.claude.procs} processes  ·  ${gb(s.claude.rssK)} rss  ·  ${s.claude.cpu}% cpu`)}
-        {line('ssh', s.ssh.length ? s.ssh.join('   ') : <Text dimColor>none</Text>)}
+        {line('claude', `${s.claude.procs}p · ${gb(s.claude.rssK)} · ${s.claude.cpu}%`)}
+        {line('ssh', s.ssh.length ? s.ssh.join(' · ') : <Text dimColor>none</Text>)}
         {line(
           'ts',
           ts ? (
             <Text>
               <Text color={c.ts}>{ts.state === 'Running' ? 'ok' : ts.state}</Text>
-              <Text dimColor>  ·  {ts.dns}  ·  </Text>
-              {online.length}/{ts.peers.length} online
-              {online.length ? <Text dimColor>  ·  {online.map(p => p.name).join(' ')}</Text> : null}
+              <Text dimColor> · </Text>
+              {online.length}/{peers.length}
+              <Text dimColor> online{online.length ? ` · ${online.map(p => p.name).join(' ')}` : ''}</Text>
             </Text>
           ) : (
             <Text dimColor>—</Text>
           ),
         )}
         <Text> </Text>
-        {line('trees', t ? `${gb(t.totalK)}  ·  ${t.count} checkouts` : <Text dimColor>…</Text>)}
+        {line('trees', t ? <Text>{gb(t.totalK)}<Text dimColor> · {t.count} checkouts</Text></Text> : <Text dimColor>…</Text>)}
         {treeRows.map(d => (
           <Box key={d.name}>
-            <Box width={LABEL} />
-            <Box width={nameW + 2}>
-              <Text>{d.name}</Text>
-            </Box>
-            <Text dimColor>{bar(t && t.totalK > 0 ? (d.k / t.totalK) * 100 : 0, shareW)}</Text>
-            <Box width={6} justifyContent="flex-end">
-              <Text>{gb(d.k)}</Text>
-            </Box>
-            <Box marginLeft={2}>
-              <Text dimColor>{d.count} checkout{d.count === 1 ? '' : 's'}</Text>
-            </Box>
+            {cell(nameW + 1, d.name)}
+            {cell(shareW + 1, bar(t && t.totalK > 0 ? (d.k / t.totalK) * 100 : 0, shareW), { dim: true })}
+            {cell(SIZE, gb(d.k), { right: true })}
+            {cell(COUNT + 1, String(d.count), { dim: true, right: true })}
           </Box>
         ))}
         <Text> </Text>
-        {procs('by cpu', s.top.cpu.slice(0, n))}
+        {procs('by cpu', top.cpu.slice(0, n))}
         {both ? <Text> </Text> : null}
-        {both ? procs('by rss', s.top.rss.slice(0, n)) : null}
+        {both ? procs('by rss', top.rss.slice(0, n)) : null}
       </Box>
     )
   })
