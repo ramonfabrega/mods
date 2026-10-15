@@ -2,11 +2,13 @@
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "mods",
   "description": "mods — Ramon's Claude Code mods: hooks modules that change the interface",
-  "owner": { "name": "Ramon Fabrega" },
+  "owner": {
+    "name": "Ramon Fabrega"
+  },
   "plugins": [
     {
       "name": "host",
-      "description": "A band above the prompt with the box's health: cpu, load, memory, swap traffic, disk, worktree trees, claude processes, ssh peers, tailscale. /host toggles it.",
+      "description": "The box this session runs on: one band above the prompt with cpu, load, memory, swap traffic, disk, worktree trees, claude processes, ssh peers, tailscale; a pane behind it with the breakdown and the hungriest processes. /host toggles the band, /host pane the pane.",
       "category": "productivity",
       "source": "./host"
     }

@@ -114,6 +114,27 @@ export function parsePs(out: string): { procs: number; rssK: number; cpu: number
   return { procs, rssK, cpu: Math.round(cpu) }
 }
 
+export type Proc = { name: string; cpu: number; rssK: number }
+
+/**
+ * `ps -axo rss=,pcpu=,comm=` again: the `n` hungriest processes by cpu and by
+ * rss, each named by its basename (an `.app` bundle by the app's name).
+ */
+export function parseProcs(out: string, n: number): { cpu: Proc[]; rss: Proc[] } {
+  const procs: Proc[] = []
+  for (const line of out.trim().split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+([\d.]+)\s+(.+)$/)
+    if (!m) continue
+    const path = m[3] ?? ''
+    const app = path.match(/\/([^/]+)\.app\//)
+    const name = app?.[1] ?? path.split('/').pop() ?? path
+    procs.push({ name, cpu: Number(m[2]), rssK: Number(m[1]) })
+  }
+  const cpu = [...procs].sort((a, b) => b.cpu - a.cpu).slice(0, n)
+  const rss = [...procs].sort((a, b) => b.rssK - a.rssK).slice(0, n)
+  return { cpu, rss }
+}
+
 /**
  * `du -sk <dirs>`: each row "k<TAB>/…/<repo>/.claude/worktrees" → by repo,
  * largest first; "…/.codex/worktrees" is the one row named `codex`.
@@ -151,15 +172,32 @@ export function rate(bytesPerS: number): string {
   return `${(bytesPerS / 1024 ** 2).toFixed(1)}M/s`
 }
 
-/** `tailscale status --json`: the backend state and the node's DNS name. */
-export function parseTailscale(json: string): { state: string; dns: string } | null {
+export type Tailscale = {
+  state: string
+  dns: string
+  /** every peer the node knows, online first, then by name */
+  peers: { name: string; isOnline: boolean }[]
+}
+
+/** `tailscale status --json`: the backend state, the node's DNS name, its peers. */
+export function parseTailscale(json: string): Tailscale | null {
   try {
     const v: unknown = JSON.parse(json)
     if (typeof v !== 'object' || v === null) return null
-    const o = v as { BackendState?: unknown; Self?: { DNSName?: unknown } }
+    const o = v as {
+      BackendState?: unknown
+      Self?: { DNSName?: unknown }
+      Peer?: Record<string, { HostName?: unknown; Online?: unknown }>
+    }
     const state = typeof o.BackendState === 'string' ? o.BackendState : 'unknown'
     const dns = typeof o.Self?.DNSName === 'string' ? o.Self.DNSName.replace(/\.$/, '') : ''
-    return { state, dns }
+    const peers = Object.values(o.Peer ?? {})
+      .map(p => ({
+        name: typeof p.HostName === 'string' ? p.HostName : '?',
+        isOnline: p.Online === true,
+      }))
+      .sort((a, b) => Number(b.isOnline) - Number(a.isOnline) || a.name.localeCompare(b.name))
+    return { state, dns, peers }
   } catch {
     return null
   }

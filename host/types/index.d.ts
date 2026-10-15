@@ -13,9 +13,19 @@ export type HostSnap = {
   swap: { totalM: number; usedM: number; ioBytesPerS: number | null } | null
   disk: { totalK: number; availK: number; pct: number } | null
   claude: { procs: number; rssK: number; cpu: number }
+  /** the hungriest processes, by cpu and by rss, for the pane */
+  top: { cpu: Proc[]; rss: Proc[] }
   /** "ttys000 ← 100.64.0.7" */
   ssh: string[]
-  tailscale: { state: string; dns: string } | null
+  tailscale: Tailscale | null
+}
+
+export type Proc = { name: string; cpu: number; rssK: number }
+
+export type Tailscale = {
+  state: string
+  dns: string
+  peers: { name: string; isOnline: boolean }[]
 }
 
 /** The slow sample: every `.claude/worktrees` under ~/code, by repo. */
@@ -29,6 +39,13 @@ export type TreeSnap = {
 
 declare module 'claude-code' {
   interface PluginState {
-    host: { isOn: boolean; snap: HostSnap | null; trees: TreeSnap | null }
+    host: {
+      /** the band above the prompt */
+      isOn: boolean
+      /** the pane, the expanded view */
+      isPane: boolean
+      snap: HostSnap | null
+      trees: TreeSnap | null
+    }
   }
 }

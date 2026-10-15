@@ -1,7 +1,9 @@
 {
   "name": "host",
   "version": "0.1.0",
-  "author": { "name": "Ramon Fabrega" },
-  "description": "The box this session runs on, in one band above the prompt: cpu, load, memory, swap traffic, disk, worktree trees, claude processes, ssh peers, tailscale. /host toggles it.",
+  "author": {
+    "name": "Ramon Fabrega"
+  },
+  "description": "The box this session runs on: one band above the prompt with cpu, load, memory, swap traffic, disk, worktree trees, claude processes, ssh peers, tailscale; a pane behind it with the breakdown and the hungriest processes. /host toggles the band, /host pane the pane.",
   "types": "./types/index.d.ts"
 }

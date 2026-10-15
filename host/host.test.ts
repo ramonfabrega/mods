@@ -5,6 +5,7 @@ import {
   gb,
   parseDf,
   parseDu,
+  parseProcs,
   parsePs,
   parseSysctl,
   parseTailscale,
@@ -78,6 +79,20 @@ test('ps: claude-shaped processes summed by basename', async () => {
   expect(p).toEqual({ procs: 3, rssK: 3584, cpu: 52 })
 })
 
+test('procs: the hungriest by cpu and by rss, apps by bundle name', async () => {
+  const p = parseProcs(
+    ' 1024  1.5 /opt/homebrew/bin/claude\n' +
+      ' 2048  0.5 /Users/x/.bun/bin/bun\n' +
+      '  512 50.0 /usr/bin/node\n' +
+      ' 9999  9.9 /Applications/Safari.app/Contents/MacOS/Safari\n' +
+      ' 7777  0.0 /Applications/Ghostty.app/Contents/MacOS/ghostty\n',
+    3,
+  )
+  expect(p.cpu.map(x => x.name)).toEqual(['node', 'Safari', 'claude'])
+  expect(p.rss.map(x => x.name)).toEqual(['Safari', 'Ghostty', 'bun'])
+  expect(p.cpu[0]).toEqual({ name: 'node', cpu: 50, rssK: 512 })
+})
+
 test('du: by repo, largest first, codex named', async () => {
   const d = parseDu(
     '29400000\t/Users/x/code/fun/attrition/.claude/worktrees\n' +
@@ -100,10 +115,26 @@ test('vm_stat: lifetime swap counters; rate formats', async () => {
   expect(rate(2.1 * 1024 ** 2)).toBe('2.1M/s')
 })
 
-test('tailscale: state and dns, trailing dot dropped; garbage is null', async () => {
+test('tailscale: state, dns (trailing dot dropped), peers online first; garbage is null', async () => {
   expect(
     parseTailscale('{"BackendState":"Running","Self":{"DNSName":"studio.example.ts.net."}}'),
-  ).toEqual({ state: 'Running', dns: 'studio.example.ts.net' })
+  ).toEqual({ state: 'Running', dns: 'studio.example.ts.net', peers: [] })
+  const t = parseTailscale(
+    JSON.stringify({
+      BackendState: 'Running',
+      Self: { DNSName: 'studio.example.ts.net.' },
+      Peer: {
+        a: { HostName: 'phone', Online: false },
+        b: { HostName: 'laptop', Online: true },
+        c: { HostName: 'rig', Online: true },
+      },
+    }),
+  )
+  expect(t?.peers).toEqual([
+    { name: 'laptop', isOnline: true },
+    { name: 'rig', isOnline: true },
+    { name: 'phone', isOnline: false },
+  ])
   expect(parseTailscale('not json')).toBe(null)
 })
 
