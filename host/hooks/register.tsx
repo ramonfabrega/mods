@@ -13,6 +13,7 @@ import {
   parseSysctl,
   parseTailscale,
   parseTop,
+  parseTreeCounts,
   parseUptime,
   parseVmStatSwap,
   parseWho,
@@ -26,7 +27,7 @@ const SLOW_MS = 300_000
 const STORE_ON = 'host.on'
 const STORE_PANE = 'host.pane'
 const PANE = 'host'
-const TOP_N = 8
+const TOP_N = 12
 const TAILSCALE = '/Applications/Tailscale.app/Contents/MacOS/Tailscale'
 
 const isOn = atom({ plugin: 'host', key: 'isOn' } as const, false)
@@ -112,8 +113,10 @@ async function sampleSlow($: EngineInterface): Promise<void> {
     run($, ['du', '-sk', ...dirs], 120_000),
     run($, ['find', ...dirs, '-mindepth', '1', '-maxdepth', '1', '-type', 'd']),
   ])
-  const count = (inner ?? '').trim().split('\n').filter(Boolean).length
-  const next: TreeSnap = { at, count, ...parseDu(du ?? '') }
+  const counts = parseTreeCounts(inner ?? '')
+  const count = Object.values(counts).reduce((n, c) => n + c, 0)
+  const sizes = parseDu(du ?? '')
+  const next: TreeSnap = { at, count, totalK: sizes.totalK, dirs: sizes.dirs.map(d => ({ ...d, count: counts[d.name] ?? 0 })) }
   await update($, trees, () => next)
 }
 
@@ -318,87 +321,150 @@ export const register: Register = on => {
 
     const c = colors(s)
     const cols = e.props.bodyColumns || 80
-    const bw = Math.max(8, Math.min(24, Math.floor(cols / 4)))
     const now = await $.clock.now()
     const age = Math.max(0, Math.round((now - s.at) / 1000))
 
-    const row = (label: string, body: RenderChildren) => (
-      <Text key={label}>
-        <Text dimColor>{label.padEnd(7)}</Text>
-        {body}
-      </Text>
+    // Columns: a label, a meter, its figure right-aligned, then the detail.
+    const LABEL = 8
+    const bw = Math.max(10, Math.min(40, Math.floor(cols / 3)))
+    const label = (text: string) => (
+      <Box width={LABEL}>
+        <Text dimColor>{text}</Text>
+      </Box>
     )
-    const meter = (pct: number | null, color: string | undefined, text: string, tail?: string) => (
-      <Text>
-        <Text color={color}>{bar(pct ?? 0, bw)}</Text> {text}
-        {tail ? <Text dimColor>  {tail}</Text> : null}
-      </Text>
+    const meter = (name: string, pct: number | null, color: string | undefined, figure: string, detail: string) => (
+      <Box key={name}>
+        {label(name)}
+        <Text color={color}>{bar(pct ?? 0, bw)}</Text>
+        <Box width={7} justifyContent="flex-end">
+          <Text color={color}>{figure}</Text>
+        </Box>
+        <Box marginLeft={2}>
+          <Text dimColor wrap="truncate">{detail}</Text>
+        </Box>
+      </Box>
+    )
+    const line = (name: string, body: RenderChildren) => (
+      <Box key={name}>
+        {label(name)}
+        <Text wrap="truncate">{body}</Text>
+      </Box>
     )
 
     const swapPct = s.swap && s.swap.totalM > 0 ? (s.swap.usedM / s.swap.totalM) * 100 : null
-    const swapFill = s.swap ? `${(s.swap.usedM / 1024).toFixed(1)}G/${(s.swap.totalM / 1024).toFixed(0)}G` : 'none'
-    const swapTraffic = c.swapIo === null ? 'traffic ?' : `traffic ${rate(c.swapIo)}`
-    const memTail = `compressed ${g1(s.mem.compressedG)}  unused ${g1(s.mem.unusedG)}`
-    const treesLine = t
-      ? `${gb(t.totalK)}·${t.count}  ${t.dirs.map(d => `${d.name} ${gb(d.k)}`).join('  ')}`
-      : '…'
     const ts = s.tailscale
-    const online = ts ? ts.peers.filter(p => p.isOnline).length : 0
-    const tsLine = ts
-      ? `${ts.state === 'Running' ? 'ok' : ts.state}  ${ts.dns}  peers ${online}/${ts.peers.length}` +
-        (online > 0 ? `  ${ts.peers.filter(p => p.isOnline).map(p => p.name).join(' ')}` : '')
-      : '—'
+    const online = ts ? ts.peers.filter(p => p.isOnline) : []
 
-    // The hungriest processes: two tables side by side when the pane is wide enough.
-    const fixedRows = 11
-    const n = Math.max(3, Math.min(TOP_N, e.props.scroll.bodyRows - fixedRows))
-    const sideBySide = cols >= 64
-    const colW = sideBySide ? Math.floor((cols - 2) / 2) : cols
-    const fit = (name: string, w: number) => (name.length > w ? name.slice(0, Math.max(1, w - 1)) + '…' : name)
-    const cpuLine = (p: Proc) => `${p.cpu.toFixed(1).padStart(5)}  ${fit(p.name, colW - 7)}`
-    const rssLine = (p: Proc) => `${g1(p.rssK / 1024 ** 2).padStart(5)}  ${fit(p.name, colW - 7)}`
-    const cpuRows = s.top.cpu.slice(0, n)
-    const rssRows = s.top.rss.slice(0, n)
-    const table = (title: string, lines: string[]) => (
-      <Box flexDirection="column" width={colW}>
-        <Text dimColor>{title}</Text>
-        {lines.map((l, i) => (
-          <Text key={String(i)}>{l}</Text>
+    // Trees: one row per repo, its share of the total as a bar.
+    const treeRows = t?.dirs ?? []
+    const nameW = Math.max(6, ...treeRows.map(d => d.name.length))
+    const shareW = Math.max(6, Math.min(20, Math.floor(cols / 6)))
+
+    // Processes: the rows that fit, by cpu then by rss when there is room for both.
+    const fixed = 12 + treeRows.length
+    const room = Math.max(4, e.props.scroll.bodyRows - fixed)
+    const both = room >= 10
+    const n = Math.min(TOP_N, both ? Math.floor((room - 2) / 2) : room - 1)
+    const cpuW = 6
+    const rssW = 6
+    const procs = (title: string, rows: Proc[]) => (
+      <Box flexDirection="column" key={title}>
+        <Box>
+          {label(title)}
+          <Box width={cpuW} justifyContent="flex-end">
+            <Text dimColor>cpu%</Text>
+          </Box>
+          <Box width={rssW} justifyContent="flex-end">
+            <Text dimColor>rss</Text>
+          </Box>
+          <Box marginLeft={2}>
+            <Text dimColor>process</Text>
+          </Box>
+        </Box>
+        {rows.map((p, i) => (
+          <Box key={String(i)}>
+            <Box width={LABEL} />
+            <Box width={cpuW} justifyContent="flex-end">
+              <Text color={p.cpu >= 100 ? 'yellow' : undefined}>{p.cpu.toFixed(1)}</Text>
+            </Box>
+            <Box width={rssW} justifyContent="flex-end">
+              <Text>{g1(p.rssK / 1024 ** 2)}</Text>
+            </Box>
+            <Box marginLeft={2}>
+              <Text wrap="truncate">{p.name}</Text>
+            </Box>
+          </Box>
         ))}
       </Box>
     )
 
     return (
       <Box flexDirection="column">
-        <Text>
-          <Text bold>{s.host}</Text>
-          <Text dimColor>  up </Text>
-          {s.up}
-          <Text dimColor>  {s.cpus} cpu  load </Text>
-          {s.load.map(x => x.toFixed(1)).join(' ')}
-          <Text dimColor>  sampled {age}s ago</Text>
-        </Text>
-        {row('cpu', meter(s.cpuBusy, c.cpu, `${s.cpuBusy ?? '?'}%`, `claude ${s.claude.cpu}%`))}
-        {row('mem', meter(c.memPct, c.mem, `${g1(s.mem.usedG)}/${g1(s.mem.totalG)}`, memTail))}
-        {row('swap', meter(swapPct, c.swap, swapFill, swapTraffic))}
-        {row('disk', meter(s.disk?.pct ?? null, c.disk, s.disk ? `${s.disk.pct}%` : '?', s.disk ? `${gb(s.disk.availK)} free` : undefined))}
-        {row('claude', `${s.claude.procs} processes  ${gb(s.claude.rssK)} rss  ${s.claude.cpu}% cpu`)}
-        {row('trees', treesLine)}
-        {row('ssh', s.ssh.length ? s.ssh.join('  ') : 'none')}
-        {row('ts', <Text color={c.ts}>{tsLine}</Text>)}
-        <Text> </Text>
-        {sideBySide ? (
-          <Box>
-            {table('cpu%', cpuRows.map(cpuLine))}
-            <Text>  </Text>
-            {table('rss', rssRows.map(rssLine))}
-          </Box>
-        ) : (
-          <Box flexDirection="column">
-            {table('cpu%', cpuRows.map(cpuLine))}
-            {table('rss', rssRows.map(rssLine))}
-          </Box>
+        <Box justifyContent="space-between">
+          <Text>
+            <Text bold>{s.host}</Text>
+            <Text dimColor>  up </Text>
+            {s.up}
+            <Text dimColor>  ·  {s.cpus} cpu  ·  load </Text>
+            {s.load.map(x => x.toFixed(1)).join(' ')}
+          </Text>
+          <Text dimColor>{age}s ago</Text>
+        </Box>
+        {meter('cpu', s.cpuBusy, c.cpu, `${s.cpuBusy ?? '?'}%`, `claude ${s.claude.cpu}%`)}
+        {meter(
+          'mem',
+          c.memPct,
+          c.mem,
+          g1(s.mem.usedG),
+          `of ${g1(s.mem.totalG)}  ·  compressed ${g1(s.mem.compressedG)}  ·  unused ${g1(s.mem.unusedG)}`,
         )}
+        {meter(
+          'swap',
+          swapPct,
+          c.swap,
+          s.swap ? `${(s.swap.usedM / 1024).toFixed(1)}G` : 'none',
+          s.swap
+            ? `of ${(s.swap.totalM / 1024).toFixed(0)}G  ·  traffic ${c.swapIo === null ? '?' : rate(c.swapIo)}`
+            : '',
+        )}
+        {meter('disk', s.disk?.pct ?? null, c.disk, s.disk ? `${s.disk.pct}%` : '?', s.disk ? `${gb(s.disk.availK)} free` : '')}
+        <Text> </Text>
+        {line('claude', `${s.claude.procs} processes  ·  ${gb(s.claude.rssK)} rss  ·  ${s.claude.cpu}% cpu`)}
+        {line('ssh', s.ssh.length ? s.ssh.join('   ') : <Text dimColor>none</Text>)}
+        {line(
+          'ts',
+          ts ? (
+            <Text>
+              <Text color={c.ts}>{ts.state === 'Running' ? 'ok' : ts.state}</Text>
+              <Text dimColor>  ·  {ts.dns}  ·  </Text>
+              {online.length}/{ts.peers.length} online
+              {online.length ? <Text dimColor>  ·  {online.map(p => p.name).join(' ')}</Text> : null}
+            </Text>
+          ) : (
+            <Text dimColor>—</Text>
+          ),
+        )}
+        <Text> </Text>
+        {line('trees', t ? `${gb(t.totalK)}  ·  ${t.count} checkouts` : <Text dimColor>…</Text>)}
+        {treeRows.map(d => (
+          <Box key={d.name}>
+            <Box width={LABEL} />
+            <Box width={nameW + 2}>
+              <Text>{d.name}</Text>
+            </Box>
+            <Text dimColor>{bar(t && t.totalK > 0 ? (d.k / t.totalK) * 100 : 0, shareW)}</Text>
+            <Box width={6} justifyContent="flex-end">
+              <Text>{gb(d.k)}</Text>
+            </Box>
+            <Box marginLeft={2}>
+              <Text dimColor>{d.count} checkout{d.count === 1 ? '' : 's'}</Text>
+            </Box>
+          </Box>
+        ))}
+        <Text> </Text>
+        {procs('by cpu', s.top.cpu.slice(0, n))}
+        {both ? <Text> </Text> : null}
+        {both ? procs('by rss', s.top.rss.slice(0, n)) : null}
       </Box>
     )
   })

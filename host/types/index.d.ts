@@ -34,7 +34,7 @@ export type TreeSnap = {
   totalK: number
   /** worktree checkouts counted across every dir */
   count: number
-  dirs: { name: string; k: number }[]
+  dirs: { name: string; k: number; count: number }[]
 }
 
 declare module 'claude-code' {

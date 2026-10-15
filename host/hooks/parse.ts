@@ -145,16 +145,28 @@ export function parseDu(out: string): { totalK: number; dirs: { name: string; k:
     .split('\n')
     .map(line => line.match(/^(\d+)\s+(.+)$/))
     .filter((m): m is RegExpMatchArray => m !== null)
-    .map(m => {
-      const path = m[2] ?? ''
-      const parts = path.split('/')
-      const codex = parts.lastIndexOf('.codex')
-      const claude = parts.lastIndexOf('.claude')
-      const name = codex >= 0 ? 'codex' : parts[claude - 1] ?? path
-      return { name, k: Number(m[1]) }
-    })
+    .map(m => ({ name: treeName(m[2] ?? ''), k: Number(m[1]) }))
     .sort((a, b) => b.k - a.k)
   return { totalK: dirs.reduce((n, d) => n + d.k, 0), dirs }
+}
+
+/** "/…/<repo>/.claude/worktrees[/…]" → repo; "/…/.codex/worktrees[/…]" → codex. */
+export function treeName(path: string): string {
+  const parts = path.split('/')
+  const codex = parts.lastIndexOf('.codex')
+  const claude = parts.lastIndexOf('.claude')
+  return codex >= 0 ? 'codex' : parts[claude - 1] ?? path
+}
+
+/** `find <dirs> -mindepth 1 -maxdepth 1 -type d`: checkouts per repo. */
+export function parseTreeCounts(out: string): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const line of out.trim().split('\n')) {
+    if (!line) continue
+    const name = treeName(line)
+    counts[name] = (counts[name] ?? 0) + 1
+  }
+  return counts
 }
 
 /** `vm_stat`'s lifetime swap counters, in pages. */

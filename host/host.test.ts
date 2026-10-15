@@ -10,6 +10,7 @@ import {
   parseSysctl,
   parseTailscale,
   parseTop,
+  parseTreeCounts,
   parseUptime,
   parseVmStatSwap,
   parseWho,
@@ -102,6 +103,16 @@ test('du: by repo, largest first, codex named', async () => {
   )
   expect(d.dirs.map(x => x.name)).toEqual(['acme', 'attrition', 'codex', 'ccc'])
   expect(d.totalK).toBe(83100000)
+})
+
+test('tree counts: checkouts per repo, by the du naming', async () => {
+  expect(
+    parseTreeCounts(
+      '/Users/x/code/fun/attrition/.claude/worktrees/a\n' +
+        '/Users/x/code/fun/attrition/.claude/worktrees/b\n' +
+        '/Users/x/.codex/worktrees/c\n',
+    ),
+  ).toEqual({ attrition: 2, codex: 1 })
 })
 
 test('vm_stat: lifetime swap counters; rate formats', async () => {
