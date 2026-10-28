@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "mods",
-  "description": "mods — Ramon's Claude Code mods: hooks modules that change the interface",
+  "description": "mods \u2014 Ramon's Claude Code mods: hooks modules that change the interface",
   "owner": {
     "name": "Ramon Fabrega"
   },
@@ -11,6 +11,12 @@
       "description": "The box this session runs on: one band above the prompt with cpu, load, memory, swap traffic, disk, worktree trees, claude processes, ssh peers, tailscale; a pane behind it with the breakdown and the hungriest processes. /host toggles the band, /host pane the pane.",
       "category": "productivity",
       "source": "./host"
+    },
+    {
+      "name": "limits",
+      "description": "Logs the subscription's rate-limit windows \u2014 five_hour and seven_day percent used, and when each resets \u2014 to ~/.lore/limits.jsonl (LORE_HOME when set), one line per whole-point move, from every session that has it. No UI, no token: the figures the status line already shows, kept, so lore can read the exchange rate between tokens and the sub.",
+      "category": "productivity",
+      "source": "./limits"
     }
   ]
 }

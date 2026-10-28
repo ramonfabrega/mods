@@ -70,3 +70,29 @@ box is doing now, and dims load.
 
 macOS only (`sysctl`, `top -l 1`, `vm_stat`, `df`, `who`, the Tailscale app
 binary).
+
+## limits
+
+A logger, no UI. The engine raises `session.measure` when a rate-limit
+window moves a whole point and hands the hook the windows the last API
+response reported — `five_hour` and `seven_day`, each with `percentUsed`
+and `resetsAt`, the same figures the status line draws. `limits` appends
+one JSON line per reading to `~/.lore/limits.jsonl` (`$LORE_HOME/limits.jsonl`
+when that is set), from every session the mod is installed in:
+
+```
+{"ts":"2026-10-28T07:29:00.000Z","session":"<session id>","kind":"seven_day","pct":69,"resetsAt":"2026-10-31T11:00:00.000Z"}
+```
+
+Why: the subscription's weekly allowance is the only budget that matters
+and nothing writes it down. Tokens and list dollars are what the
+transcripts hold; the percent is what the account enforces. A week of both
+side by side gives the exchange rate, and `resetsAt` gives the week's
+anchor without anyone hardcoding a weekday. The append is one `/bin/sh`
+call with the line passed as an argument, never interpolated, so the log
+line's text cannot reach the shell. A failed write never touches the
+session.
+
+```sh
+claude plugin install limits@mods
+```
