@@ -1,0 +1,8 @@
+{
+  "name": "limits",
+  "version": "0.1.0",
+  "author": {
+    "name": "Ramon Fabrega"
+  },
+  "description": "Logs the subscription's rate-limit windows (five_hour, seven_day: percent used and when each resets) to ~/.lore/limits.jsonl, one line per whole-point move, from every session that has it — the figures the status line shows, kept, so a week of them gives the exchange rate between tokens and the sub."
+}
