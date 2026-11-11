@@ -14,7 +14,7 @@
     },
     {
       "name": "limits",
-      "description": "Logs the subscription's rate-limit windows \u2014 five_hour and seven_day percent used, and when each resets \u2014 to ~/.lore/limits.jsonl (LORE_HOME when set), one line per whole-point move, from every session that has it. No UI, no token: the figures the status line already shows, kept, so lore can read the exchange rate between tokens and the sub.",
+      "description": "Logs the subscription's rate-limit windows \u2014 five_hour, seven_day and each per-model week (Fable's), percent used and when each resets \u2014 to ~/.lore/limits.jsonl (LORE_HOME when set), one line per whole-point move, from every session that has it, and keeps the latest per-model reading in limits-now.json beside it for a status line to draw. No UI. The per-model weeks come from the usage endpoint, asked with the session's own credential through the engine; the token never reaches the mod.",
       "category": "productivity",
       "source": "./limits"
     }

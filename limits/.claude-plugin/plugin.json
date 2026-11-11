@@ -1,8 +1,8 @@
 {
   "name": "limits",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Ramon Fabrega"
   },
-  "description": "Logs the subscription's rate-limit windows (five_hour, seven_day: percent used and when each resets) to ~/.lore/limits.jsonl, one line per whole-point move, from every session that has it — the figures the status line shows, kept, so a week of them gives the exchange rate between tokens and the sub."
+  "description": "Logs the subscription's rate-limit windows (five_hour, seven_day, and each per-model week such as Fable's: percent used and when each resets) to ~/.lore/limits.jsonl, one line per whole-point move, from every session that has it, and keeps the latest per-model reading in ~/.lore/limits-now.json for a status line to draw — the figures the account enforces, kept, so a week of them gives the exchange rate between tokens and the sub."
 }
